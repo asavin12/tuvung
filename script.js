@@ -1,9 +1,9 @@
 let vocabList = [];
 
 // Thay bằng thông tin GitHub của bạn
-const GITHUB_TOKEN = "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";
+const GITHUB_TOKEN = "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";
 const GITHUB_OWNER = "asavin12"; ;
-const GITHUB_REPO = "tuvung";
+const GITHUB_REPO = "tukho";
 const GITHUB_PATH = "difficult_words.json";
 const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
 
