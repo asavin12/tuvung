@@ -120,6 +120,6 @@ input[type="checkbox"] {
 .print-table th {
     background: #f0f0f0;
     font-weight: bold;
-    white-space: normal; /* Cho phép wrap text trong tiêu đề */
+    white-space: normal;
     word-wrap: break-word;
 }
