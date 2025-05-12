@@ -6,7 +6,7 @@ const GITHUB_REPO = "tuvung";
 const GITHUB_PATH = "difficult_words.json";
 const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
 
-// Khóa bí mật cho XOR (phải khớp với khi mã hóa)
+// Khóa bí mật cho XOR
 const SECRET_KEY = 'mysecretkey';
 
 // Hàm giải mã XOR
@@ -31,9 +31,10 @@ async function loadApiKey() {
             throw new Error('Không tìm thấy key trong .env');
         }
         const encodedToken = tokenLine.split('=')[1].trim();
-        // Giải mã base64, sau đó giải mã XOR
         const decodedBase64 = atob(encodedToken);
-        return xorDecode(decodedBase64, SECRET_KEY);
+        const token = xorDecode(decodedBase64, SECRET_KEY);
+        console.log('Token giải mã:', token); // Gỡ lỗi
+        return token;
     } catch (error) {
         console.error('Error loading API key:', error.message);
         alert(`Không thể tải API key: ${error.message}. Vui lòng kiểm tra tệp .env.`);
@@ -84,6 +85,12 @@ async function loadVocabList() {
     if (!GITHUB_TOKEN) return;
 
     try {
+        // Kiểm tra kết nối mạng
+        const networkCheck = await fetch('https://api.github.com', { method: 'HEAD' });
+        if (!networkCheck.ok) {
+            throw new Error(`Không thể kết nối đến GitHub API: ${networkCheck.status}`);
+        }
+
         const response = await fetch(API_URL, {
             method: "GET",
             headers: {
