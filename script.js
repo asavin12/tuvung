@@ -1,11 +1,9 @@
 let vocabList = [];
 
-// Thay bằng thông tin GitHub của bạn
-const GITHUB_TOKEN = "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";
-const GITHUB_OWNER = "tranduchai"; ;
-const GITHUB_REPO = "tuvung";
-const GITHUB_PATH = "difficult_words.json";
-const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
+// Cấu hình JSONbin.io
+const JSONBIN_API_KEY = "$2a$10$5SXVDLQDnJ/gRvN9P5tcHOlNNON9nXJz57dojyk4b7meTnQzOMe26"; // Thay bằng API key từ jsonbin.io
+const BIN_ID = "68213e698a456b79669be345"; // Thay bằng Bin ID từ jsonbin.io
+const API_URL = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 
 // Hàm sửa chuỗi mã hóa sai
 function fixEncoding(str) {
@@ -26,102 +24,51 @@ function normalizeString(str) {
         .trim();
 }
 
-// Hàm mã hóa base64 với UTF-8
-function encodeBase64(str) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(str);
-    return btoa(String.fromCharCode(...data));
-}
-
-// Hàm giải mã base64 với UTF-8
-function decodeBase64(str) {
-    const binary = atob(str);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-    }
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(bytes);
-}
-
-// Tải dữ liệu từ GitHub
+// Tải dữ liệu từ JSONbin.io
 async function loadVocabList() {
     try {
-        const response = await fetch(API_URL, {
-            method: "GET",
+        const response = await fetch(`${API_URL}/latest`, {
             headers: {
-                "Authorization": `Bearer ${GITHUB_TOKEN}`,
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json; charset=utf-8",
-                "User-Agent": "vocab-app"
+                "X-Master-Key": JSONBIN_API_KEY,
+                "Content-Type": "application/json"
             }
         });
-
         if (response.ok) {
             const data = await response.json();
-            vocabList = JSON.parse(decodeBase64(data.content));
-            displayVocabList();
-        } else if (response.status === 404) {
-            console.log("File not found, initializing empty list");
-            vocabList = [];
+            vocabList = data.record || [];
             displayVocabList();
         } else {
-            const errorData = await response.json();
-            throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData.message}`);
+            throw new Error(`HTTP error! Status: ${response.status}, Message: ${data.message || 'Unknown error'}`);
         }
     } catch (error) {
         console.error("Error loading vocab list:", error.message);
-        alert(`Không thể tải danh sách từ vựng: ${error.message}. Vui lòng kiểm tra console và token GitHub.`);
+        alert(`Không thể tải danh sách từ vựng: ${error.message}. Vui lòng kiểm tra console và API key.`);
     }
 }
 
-// Lưu dữ liệu lên GitHub
+// Lưu dữ liệu lên JSONbin.io
 async function saveVocabList() {
     try {
-        let sha = null;
-        const getResponse = await fetch(API_URL, {
-            method: "GET",
-            headers: {
-                "Authorization": `Bearer ${GITHUB_TOKEN}`,
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json; charset=utf-8",
-                "User-Agent": "vocab-app"
-            }
-        });
-
-        if (getResponse.ok) {
-            const data = await getResponse.json();
-            sha = data.sha;
-        } else if (getResponse.status !== 404) {
-            const errorData = await getResponse.json();
-            throw new Error(`HTTP error! Status: ${getResponse.status}, Message: ${errorData.message}`);
-        }
-
-        const jsonString = JSON.stringify(vocabList, null, 2);
-        const updateResponse = await fetch(API_URL, {
+        const response = await fetch(API_URL, {
             method: "PUT",
             headers: {
-                "Authorization": `Bearer ${GITHUB_TOKEN}`,
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json; charset=utf-8",
-                "User-Agent": "vocab-app"
+                "X-Master-Key": JSONBIN_API_KEY,
+                "Content-Type": "application/json",
+                "X-Bin-Meta": "true" // Bao gồm metadata
             },
             body: JSON.stringify({
-                message: `Update difficult_words.json`,
-                content: encodeBase64(jsonString),
-                sha: sha
+                record: vocabList,
+                metadata: { id: BIN_ID }
             })
         });
-
-        if (!updateResponse.ok) {
-            const errorData = await updateResponse.json();
-            throw new Error(`HTTP error! Status: ${updateResponse.status}, Message: ${errorData.message}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorData.message || 'Unknown error'}`);
         }
-
         console.log("Vocab list saved successfully");
     } catch (error) {
         console.error("Error saving vocab list:", error.message);
-        alert(`Không thể lưu danh sách từ vựng: ${error.message}. Vui lòng kiểm tra console và token GitHub.`);
+        alert(`Không thể lưu danh sách từ vựng: ${error.message}. Vui lòng kiểm tra console và API key.`);
     }
 }
 
@@ -173,30 +120,24 @@ async function deleteSelectedWords() {
 // Sắp xếp ngẫu nhiên, đảm bảo không có từ lặp liên tiếp
 function shuffleArray(array) {
     const result = [...array];
-    let n = result.length;
+    const n = result.length;
 
     // Fisher-Yates shuffle với kiểm tra không lặp liên tiếp
     for (let i = n - 1; i > 0; i--) {
         let validIndices = [];
         for (let j = 0; j <= i; j++) {
-            // Chỉ thêm chỉ số j nếu result[j] không giống result[i+1] (hoặc i là cuối mảng)
             if (i === n - 1 || normalizeString(result[j].german) !== normalizeString(result[i + 1].german)) {
                 validIndices.push(j);
             }
         }
-        if (validIndices.length === 0) {
-            // Nếu không có chỉ số hợp lệ, giữ nguyên (hiếm xảy ra)
-            continue;
-        }
-        // Chọn ngẫu nhiên từ các chỉ số hợp lệ
+        if (validIndices.length === 0) continue;
         const j = validIndices[Math.floor(Math.random() * validIndices.length)];
         [result[i], result[j]] = [result[j], result[i]];
     }
 
-    // Kiểm tra lại và sửa nếu vẫn có lặp liên tiếp
+    // Kiểm tra và sửa lặp liên tiếp
     for (let i = 1; i < result.length; i++) {
         if (normalizeString(result[i].german) === normalizeString(result[i - 1].german)) {
-            // Tìm một vị trí không gây lặp liên tiếp để hoán đổi
             for (let j = i + 1; j < result.length; j++) {
                 if (
                     normalizeString(result[j].german) !== normalizeString(result[i - 1].german) &&
@@ -241,7 +182,7 @@ function generateTable() {
     tableData = shuffleArray(tableData);
 
     // Tạo bảng HTML
-    const answerColumnTitle = tableType === "germanToVietnamese" ? "Đáp án Tiếng Việt" : "Đáp án Tiếng Đức";
+    const answerColumnTitle = tableType === "germanToVietnamese" ? "Đáp án Tiếng Đức" : "Đáp án Tiếng Việt";
     let tableHtml = `
         <table class="print-table">
             <thead>
@@ -275,7 +216,6 @@ function createPDF() {
         return;
     }
 
-    // Tải jsPDF từ CDN
     const script = document.createElement("script");
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
     script.onload = function() {
