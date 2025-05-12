@@ -17,27 +17,25 @@ function xorDecode(str, key) {
         .join('');
 }
 
-// Hàm tải và giải mã API key từ .env
+// Hàm tải và giải mã API key từ key.json
 async function loadApiKey() {
     try {
-        const response = await fetch('./.env');
+        const response = await fetch('./key.json');
         if (!response.ok) {
-            throw new Error(`Không thể tải .env: ${response.status}`);
+            throw new Error(`Không thể tải key.json: ${response.status}`);
         }
-        const text = await response.text();
-        const lines = text.split('\n');
-        const tokenLine = lines.find(line => line.startsWith('key='));
-        if (!tokenLine) {
-            throw new Error('Không tìm thấy key trong .env');
+        const data = await response.json();
+        if (!data.key) {
+            throw new Error('Không tìm thấy key trong key.json');
         }
-        const encodedToken = tokenLine.split('=')[1].trim();
+        const encodedToken = data.key;
         const decodedBase64 = atob(encodedToken);
         const token = xorDecode(decodedBase64, SECRET_KEY);
         console.log('Token giải mã:', token); // Gỡ lỗi
         return token;
     } catch (error) {
         console.error('Error loading API key:', error.message);
-        alert(`Không thể tải API key: ${error.message}. Vui lòng kiểm tra tệp .env.`);
+        alert(`Không thể tải API key: ${error.message}. Vui lòng kiểm tra tệp key.json.`);
         return null;
     }
 }
