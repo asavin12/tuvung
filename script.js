@@ -1,35 +1,42 @@
 let vocabList = [];
 
-// Cấu hình JSONbin.io
-const JSONBIN_ACCESS_KEY = "$2a$10$CR/lsugKoxziyjuGAiuxdeJzoVEvA.4VG.R/rrLSfAvn/4GgSCdi2"; // Thay bằng X-Access-Key
-const JSONBIN_BIN_ID = "682154598960c979a597ac0c"; // Thay bằng Bin ID
-const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
-
-// Cấu hình GitHub
+// Thông tin GitHub
 const GITHUB_OWNER = "tranduchai1";
 const GITHUB_REPO = "tuvung";
 const GITHUB_PATH = "difficult_words.json";
+const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
 
-// Tải API key từ JSONbin.io
-async function loadGitHubToken() {
+// Khóa bí mật cho XOR (phải khớp với khi mã hóa)
+const SECRET_KEY = 'mysecretkey';
+
+// Hàm giải mã XOR
+function xorDecode(str, key) {
+    return Array.from(str)
+        .map((char, i) => char.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+        .map(code => String.fromCharCode(code))
+        .join('');
+}
+
+// Hàm tải và giải mã API key từ .env
+async function loadApiKey() {
     try {
-        const response = await fetch(JSONBIN_URL, {
-            method: "GET",
-            headers: {
-                "X-Access-Key": JSONBIN_ACCESS_KEY,
-                "Content-Type": "application/json"
-            }
-        });
-
+        const response = await fetch('./.env');
         if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            throw new Error(`Không thể tải .env: ${response.status}`);
         }
-
-        const data = await response.json();
-        return data.record.github_token;
+        const text = await response.text();
+        const lines = text.split('\n');
+        const tokenLine = lines.find(line => line.startsWith('key='));
+        if (!tokenLine) {
+            throw new Error('Không tìm thấy key trong .env');
+        }
+        const encodedToken = tokenLine.split('=')[1].trim();
+        // Giải mã base64, sau đó giải mã XOR
+        const decodedBase64 = atob(encodedToken);
+        return xorDecode(decodedBase64, SECRET_KEY);
     } catch (error) {
-        console.error("Error loading GitHub token from JSONbin.io:", error.message);
-        alert(`Không thể tải GitHub token: ${error.message}. Vui lòng kiểm tra JSONbin.io.`);
+        console.error('Error loading API key:', error.message);
+        alert(`Không thể tải API key: ${error.message}. Vui lòng kiểm tra tệp .env.`);
         return null;
     }
 }
@@ -73,10 +80,9 @@ function decodeBase64(str) {
 
 // Tải dữ liệu từ GitHub
 async function loadVocabList() {
-    const GITHUB_TOKEN = await loadGitHubToken();
+    const GITHUB_TOKEN = await loadApiKey();
     if (!GITHUB_TOKEN) return;
 
-    const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
     try {
         const response = await fetch(API_URL, {
             method: "GET",
@@ -108,10 +114,9 @@ async function loadVocabList() {
 
 // Lưu dữ liệu lên GitHub
 async function saveVocabList() {
-    const GITHUB_TOKEN = await loadGitHubToken();
+    const GITHUB_TOKEN = await loadApiKey();
     if (!GITHUB_TOKEN) return;
 
-    const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
     try {
         let sha = null;
         const getResponse = await fetch(API_URL, {
@@ -210,7 +215,6 @@ function shuffleArray(array) {
     const result = [...array];
     let n = result.length;
 
-    // Fisher-Yates shuffle với kiểm tra không lặp liên tiếp
     for (let i = n - 1; i > 0; i--) {
         let validIndices = [];
         for (let j = 0; j <= i; j++) {
@@ -225,7 +229,6 @@ function shuffleArray(array) {
         [result[i], result[j]] = [result[j], result[i]];
     }
 
-    // Kiểm tra lại và sửa nếu vẫn có lặp liên tiếp
     for (let i = 1; i < result.length; i++) {
         if (normalizeString(result[i].german) === normalizeString(result[i - 1].german)) {
             for (let j = i + 1; j < result.length; j++) {
@@ -258,6 +261,7 @@ function generateTable() {
     }
 
     const selectedWords = selectedIndices.map(index => vocabList[index]);
+
     let tableData = [];
     selectedWords.forEach(word => {
         for (let i = 0; i < repeatCount; i++) {
