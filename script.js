@@ -9,6 +9,9 @@ const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/con
 // Khóa bí mật cho XOR
 const SECRET_KEY = 'mysecretkey';
 
+// API key mã hóa
+const ENCODED_KEY = 'ChEDOiA1DCJaVioiOzkBURApOBIyLTQwRAsxHCgbClwbO0lDEQQoFg==';
+
 // Hàm giải mã XOR
 function xorDecode(str, key) {
     return Array.from(str)
@@ -17,25 +20,16 @@ function xorDecode(str, key) {
         .join('');
 }
 
-// Hàm tải và giải mã API key từ key.json
-async function loadApiKey() {
+// Hàm lấy API key giải mã
+function loadApiKey() {
     try {
-        const response = await fetch('./key.json');
-        if (!response.ok) {
-            throw new Error(`Không thể tải key.json: ${response.status}`);
-        }
-        const data = await response.json();
-        if (!data.key) {
-            throw new Error('Không tìm thấy key trong key.json');
-        }
-        const encodedToken = data.key;
-        const decodedBase64 = atob(encodedToken);
+        const decodedBase64 = atob(ENCODED_KEY);
         const token = xorDecode(decodedBase64, SECRET_KEY);
         console.log('Token giải mã:', token); // Gỡ lỗi
         return token;
     } catch (error) {
-        console.error('Error loading API key:', error.message);
-        alert(`Không thể tải API key: ${error.message}. Vui lòng kiểm tra tệp key.json.`);
+        console.error('Error decoding API key:', error.message);
+        alert(`Không thể giải mã API key: ${error.message}. Vui lòng kiểm tra ENCODED_KEY và SECRET_KEY.`);
         return null;
     }
 }
@@ -79,7 +73,7 @@ function decodeBase64(str) {
 
 // Tải dữ liệu từ GitHub
 async function loadVocabList() {
-    const GITHUB_TOKEN = await loadApiKey();
+    const GITHUB_TOKEN = loadApiKey();
     if (!GITHUB_TOKEN) return;
 
     try {
@@ -119,7 +113,7 @@ async function loadVocabList() {
 
 // Lưu dữ liệu lên GitHub
 async function saveVocabList() {
-    const GITHUB_TOKEN = await loadApiKey();
+    const GITHUB_TOKEN = loadApiKey();
     if (!GITHUB_TOKEN) return;
 
     try {
