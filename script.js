@@ -270,7 +270,7 @@ function generateTable() {
 
     tableData = shuffleArray(tableData);
 
-    const answerColumnTitle = tableType === "germanToVietnamese" ? "Đáp án Tiếng Đức" : "Đáp án Tiếng Việt";
+    const answerColumnTitle = tableType === "germanToVietnamese" ? "Tiếng Việt" : "Tiếng Đức";
     let tableHtml = `
         <table class="print-table">
             <thead>
