@@ -25,7 +25,6 @@ function loadApiKey() {
     try {
         const decodedBase64 = atob(ENCODED_KEY);
         const token = xorDecode(decodedBase64, SECRET_KEY);
-        console.log('Token giải mã:', token); // Gỡ lỗi
         return token;
     } catch (error) {
         console.error('Error decoding API key:', error.message);
@@ -45,6 +44,7 @@ function fixEncoding(str) {
 
 // Hàm chuẩn hóa chuỗi để kiểm tra trùng lặp
 function normalizeString(str) {
+    if (typeof str !== 'string') return '';
     const fixedStr = fixEncoding(str);
     return fixedStr
         .normalize('NFKD')
@@ -77,7 +77,6 @@ async function loadVocabList() {
     if (!GITHUB_TOKEN) return;
 
     try {
-        // Kiểm tra kết nối mạng
         const networkCheck = await fetch('https://api.github.com', { method: 'HEAD' });
         if (!networkCheck.ok) {
             throw new Error(`Không thể kết nối đến GitHub API: ${networkCheck.status}`);
@@ -169,13 +168,15 @@ function displayVocabList() {
     const tableBody = document.getElementById("vocabTableBody");
     tableBody.innerHTML = "";
     vocabList.forEach((word, index) => {
-        const row = document.createElement("tr");
-        row.innerHTML = `
-            <td><input type="checkbox" class="word-checkbox" data-index="${index}"></td>
-            <td>${word.german}</td>
-            <td>${word.vietnamese}</td>
-        `;
-        tableBody.appendChild(row);
+        if (word && typeof word.german === 'string' && typeof word.vietnamese === 'string') {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td><input type="checkbox" class="word-checkbox" data-index="${index}"></td>
+                <td>${word.german}</td>
+                <td>${word.vietnamese}</td>
+            `;
+            tableBody.appendChild(row);
+        }
     });
     document.getElementById("selectAll").checked = false;
 }
@@ -209,81 +210,179 @@ async function deleteSelectedWords() {
     }
 }
 
-// Sắp xếp ngẫu nhiên, đảm bảo không có từ lặp liên tiếp
-function shuffleArray(array) {
-    const result = [...array];
-    let n = result.length;
+// Sắp xếp ngẫu nhiên theo cụm
+function shuffleArray(array, repeatCount) {
+    if (!array || array.length === 0) return [];
 
-    for (let i = n - 1; i > 0; i--) {
-        let validIndices = [];
-        for (let j = 0; j <= i; j++) {
-            if (i === n - 1 || normalizeString(result[j].german) !== normalizeString(result[i + 1].german)) {
-                validIndices.push(j);
-            }
+    // Lọc các phần tử hợp lệ
+    const validWords = array.filter(word => word && typeof word.german === 'string' && typeof word.vietnamese === 'string');
+    if (validWords.length === 0) return [];
+
+    // Số dòng mỗi cụm = số từ được chọn
+    const clusterSize = validWords.length; // 10 nếu chọn 10 từ
+    const numClusters = repeatCount; // Số cụm = repeatCount
+    let finalResult = [];
+
+    // Tạo danh sách từ có sẵn, mỗi từ lặp repeatCount lần
+    let availableWords = [];
+    validWords.forEach((word, index) => {
+        for (let i = 0; i < repeatCount; i++) {
+            availableWords.push({
+                ...word,
+                normalizedGerman: normalizeString(word.german),
+                originalIndex: index // Lưu chỉ số gốc để theo dõi
+            });
         }
-        if (validIndices.length === 0) {
-            continue;
+    });
+
+    let lastWordOfPrevCluster = null;
+
+    // Hàm xáo trộn một mảng (Fisher-Yates Shuffle)
+    function shuffleSubArray(arr, start, end) {
+        for (let i = end - 1; i > start; i--) {
+            const j = start + Math.floor(Math.random() * (i - start + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
         }
-        const j = validIndices[Math.floor(Math.random() * validIndices.length)];
-        [result[i], result[j]] = [result[j], result[i]];
+        return arr;
     }
 
-    for (let i = 1; i < result.length; i++) {
-        if (normalizeString(result[i].german) === normalizeString(result[i - 1].german)) {
-            for (let j = i + 1; j < result.length; j++) {
-                if (
-                    normalizeString(result[j].german) !== normalizeString(result[i - 1].german) &&
-                    (j === result.length - 1 || normalizeString(result[j].german) !== normalizeString(result[i + 1]?.german))
-                ) {
-                    [result[i], result[j]] = [result[j], result[i]];
+    // Hàm kiểm tra và sửa vi phạm quy tắc
+    function fixClusterBoundary(clusters, clusterIndex, clusterSize) {
+        if (clusterIndex === 0) return;
+        const prevCluster = clusters[clusterIndex - 1];
+        const currCluster = clusters[clusterIndex];
+        const lastWord = prevCluster[clusterSize - 1];
+        const firstWord = currCluster[0];
+        if (lastWord.normalizedGerman === firstWord.normalizedGerman || lastWord.originalIndex === firstWord.originalIndex) {
+            // Tìm từ khác trong cụm hiện tại để hoán đổi
+            for (let i = 1; i < currCluster.length; i++) {
+                if (currCluster[i].normalizedGerman !== lastWord.normalizedGerman && 
+                    currCluster[i].originalIndex !== lastWord.originalIndex) {
+                    [currCluster[0], currCluster[i]] = [currCluster[i], currCluster[0]];
                     break;
                 }
             }
         }
     }
 
-    return result;
+    const clusters = [];
+
+    for (let clusterIndex = 0; clusterIndex < numClusters; clusterIndex++) {
+        let cluster = [];
+        const usedIndices = new Set(); // Theo dõi chỉ số từ đã dùng trong cụm
+
+        if (clusterIndex === 0) {
+            // Cụm 1: Chọn 1 lần mỗi từ
+            for (let i = 0; i < clusterSize; i++) {
+                const candidates = availableWords.filter(word => !usedIndices.has(word.originalIndex));
+                if (candidates.length === 0) break;
+                const wordIndex = Math.floor(Math.random() * candidates.length);
+                const selectedWord = candidates[wordIndex];
+                cluster.push(selectedWord);
+                usedIndices.add(selectedWord.originalIndex);
+            }
+        } else {
+            // Cụm 2 trở đi: Dòng đầu khác dòng cuối cụm trước
+            const lastWordNormalized = lastWordOfPrevCluster ? lastWordOfPrevCluster.normalizedGerman : '';
+            const lastWordIndex = lastWordOfPrevCluster ? lastWordOfPrevCluster.originalIndex : -1;
+
+            // Chọn dòng đầu tiên
+            const firstCandidates = availableWords.filter(
+                word => word.normalizedGerman !== lastWordNormalized && word.originalIndex !== lastWordIndex
+            );
+            let firstWord;
+            if (firstCandidates.length > 0) {
+                const firstWordIndex = Math.floor(Math.random() * firstCandidates.length);
+                firstWord = firstCandidates[firstWordIndex];
+            } else {
+                // Nếu không có từ khác, chọn từ có originalIndex khác
+                const fallbackCandidates = availableWords.filter(word => word.originalIndex !== lastWordIndex);
+                if (fallbackCandidates.length > 0) {
+                    const firstWordIndex = Math.floor(Math.random() * fallbackCandidates.length);
+                    firstWord = fallbackCandidates[firstWordIndex];
+                } else {
+                    // Nếu không còn lựa chọn, chọn ngẫu nhiên
+                    const firstWordIndex = Math.floor(Math.random() * availableWords.length);
+                    firstWord = availableWords[firstWordIndex];
+                }
+            }
+            cluster.push(firstWord);
+            usedIndices.add(firstWord.originalIndex);
+
+            // Chọn các từ còn lại
+            for (let i = 1; i < clusterSize; i++) {
+                const candidates = availableWords.filter(word => !usedIndices.has(word.originalIndex));
+                if (candidates.length === 0) break;
+                const wordIndex = Math.floor(Math.random() * candidates.length);
+                const selectedWord = candidates[wordIndex];
+                cluster.push(selectedWord);
+                usedIndices.add(selectedWord.originalIndex);
+            }
+        }
+
+        // Cập nhật availableWords
+        const usedWords = new Set(cluster);
+        availableWords = availableWords.filter(word => !usedWords.has(word));
+
+        // Xáo trộn vị trí dòng trong cụm
+        shuffleSubArray(cluster, 0, cluster.length);
+
+        // Lưu cụm
+        clusters.push(cluster);
+        lastWordOfPrevCluster = cluster[cluster.length - 1];
+    }
+
+    // Kiểm tra và sửa vi phạm quy tắc
+    for (let i = 1; i < numClusters; i++) {
+        fixClusterBoundary(clusters, i, clusterSize);
+    }
+
+    // Ghép các cụm thành kết quả cuối
+    finalResult = clusters.flat();
+
+    // Loại bỏ thuộc tính normalizedGerman và originalIndex
+    return finalResult.map(({ normalizedGerman, originalIndex, ...word }) => word);
 }
 
 // Tạo bảng học từ vựng
-function generateTable() {
+function generateTable(type = null) {
     const repeatCount = parseInt(document.getElementById("repeatCount").value) || 1;
-    const tableType = document.getElementById("tableType").value;
-    const printArea = document.getElementById("printArea");
-
+    const tableType = type || document.getElementById("tableType").value;
     const selectedIndices = Array.from(document.querySelectorAll(".word-checkbox:checked"))
         .map(checkbox => parseInt(checkbox.dataset.index));
 
     if (selectedIndices.length === 0) {
         alert("Vui lòng chọn ít nhất một từ để tạo bảng.");
-        return;
+        return null;
     }
 
-    const selectedWords = selectedIndices.map(index => vocabList[index]);
+    const selectedWords = selectedIndices
+        .map(index => vocabList[index])
+        .filter(word => word && typeof word.german === 'string' && typeof word.vietnamese === 'string');
 
-    let tableData = [];
-    selectedWords.forEach(word => {
-        for (let i = 0; i < repeatCount; i++) {
-            tableData.push({ ...word });
-        }
-    });
+    if (selectedWords.length === 0) {
+        alert("Không có từ hợp lệ để tạo bảng. Vui lòng kiểm tra danh sách từ vựng.");
+        return null;
+    }
 
-    tableData = shuffleArray(tableData);
+    const tableData = shuffleArray(selectedWords, repeatCount);
 
-    const answerColumnTitle = tableType === "germanToVietnamese" ? "Tiếng Việt" : "Tiếng Đức";
+    const answerColumnTitle = tableType === "germanToVietnamese" ? "Đáp án Tiếng Việt" : "Đáp án Tiếng Đức";
     let tableHtml = `
         <table class="print-table">
             <thead>
                 <tr>
+                    <th>STT</th>
                     <th>${tableType === "germanToVietnamese" ? "Tiếng Đức" : "Tiếng Việt"}</th>
                     <th>${answerColumnTitle}</th>
                 </tr>
             </thead>
             <tbody>
     `;
-    tableData.forEach(word => {
+    tableData.forEach((word, idx) => {
         tableHtml += `
             <tr>
+                <td>${idx + 1}</td>
                 <td>${tableType === "germanToVietnamese" ? word.german : word.vietnamese}</td>
                 <td></td>
             </tr>
@@ -291,15 +390,20 @@ function generateTable() {
     });
     tableHtml += `</tbody></table>`;
 
-    printArea.innerHTML = tableHtml;
-    printArea.style.display = "block";
-    document.getElementById("printControls").style.display = "block";
+    if (!type) {
+        const printArea = document.getElementById("printArea");
+        printArea.innerHTML = tableHtml;
+        printArea.style.display = "block";
+        document.getElementById("printControls").style.display = "block";
+    }
+
+    return tableHtml;
 }
 
-// Tạo và tải PDF
+// Tạo PDF cho bảng hiện tại
 function createPDF() {
-    const printArea = document.getElementById("printArea");
-    if (!printArea.innerHTML) {
+    const tableHtml = generateTable();
+    if (!tableHtml) {
         alert("Không có bảng để tạo PDF. Vui lòng tạo bảng trước.");
         return;
     }
@@ -318,52 +422,209 @@ function createPDF() {
         doc.addFont("Arial.ttf", "Arial", "normal");
         doc.setFont("Arial");
 
-        const table = printArea.querySelector(".print-table");
-        const rows = table.querySelectorAll("tr");
-        let y = 10;
-
         const tableType = document.getElementById("tableType").value;
-        doc.setFontSize(14);
-        doc.text(`Bảng Học Từ Vựng (${tableType === "germanToVietnamese" ? "Tiếng Đức → Tiếng Việt" : "Tiếng Việt → Tiếng Đức"})`, 10, y);
-        y += 7;
+        const title = `Bảng Học Từ Vựng (${tableType === "germanToVietnamese" ? "Tiếng Đức → Tiếng Việt" : "Tiếng Việt → Tiếng Đức"})`;
 
-        const colWidths = [100, 90];
-        const rowHeight = 7;
-        const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+        function drawTable(tableHtml, title, startY) {
+            doc.setFontSize(12);
+            doc.text(title, 10, startY);
+            startY += 5;
 
-        rows.forEach((row, index) => {
-            if (y + rowHeight > 277) {
-                doc.addPage();
-                y = 10;
-            }
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = tableHtml;
+            const table = tempDiv.querySelector(".print-table");
+            const rows = table.querySelectorAll("tr");
+            let y = startY;
 
-            const cells = row.querySelectorAll("th, td");
-            let x = 10;
+            const colWidths = [8, 80, 90]; // Cột STT, Tiếng Đức/Việt, Đáp án
+            const lineHeight = 3.5; // Chiều cao mỗi dòng văn bản
+            const padding = 1; // Khoảng cách lề ô
+            const maxLinesPerCell = 2; // Số dòng tối đa mỗi ô
+            const pageHeight = 287; // Chiều cao trang A4 trừ lề (297 - 10)
 
-            cells.forEach((cell, cellIndex) => {
-                const text = cell.textContent;
-                const width = colWidths[cellIndex];
-                const isHeader = cell.tagName === "TH";
+            rows.forEach((row, index) => {
+                const cells = row.querySelectorAll("th, td");
+                let maxLines = 1;
 
-                doc.setLineWidth(0.2);
-                doc.rect(x, y, width, rowHeight);
+                // Tính số dòng tối đa trong ô của hàng
+                cells.forEach((cell, cellIndex) => {
+                    const text = cell.textContent;
+                    const width = colWidths[cellIndex] - 2 * padding;
+                    doc.setFontSize(10);
+                    const lines = doc.splitTextToSize(text, width);
+                    maxLines = Math.min(Math.max(maxLines, lines.length), maxLinesPerCell);
+                });
 
-                if (isHeader) {
-                    doc.setFillColor(240, 240, 240);
-                    doc.rect(x, y, width, rowHeight, "F");
+                const rowHeight = maxLines * lineHeight + 2 * padding;
+
+                // Kiểm tra nếu hàng vượt quá trang
+                if (y + rowHeight > pageHeight) {
+                    doc.addPage();
+                    y = 10;
+                    // Vẽ lại tiêu đề trên trang mới
+                    doc.setFontSize(12);
+                    doc.text(title, 10, y);
+                    y += 5;
                 }
 
-                doc.setFontSize(10);
-                doc.setTextColor(0, 0, 0);
-                doc.text(text, x + 2, y + 5, { maxWidth: width - 4 });
+                let x = 10;
+                cells.forEach((cell, cellIndex) => {
+                    const text = cell.textContent;
+                    const width = colWidths[cellIndex];
+                    const isHeader = cell.tagName === "TH";
 
-                x += width;
+                    // Vẽ viền ô
+                    doc.setLineWidth(0.2);
+                    doc.rect(x, y, width, rowHeight);
+
+                    // Tô nền cho tiêu đề
+                    if (isHeader) {
+                        doc.setFillColor(240, 240, 240);
+                        doc.rect(x, y, width, rowHeight, "F");
+                    }
+
+                    // Vẽ văn bản
+                    doc.setFontSize(10);
+                    doc.setTextColor(0, 0, 0);
+                    let lines = doc.splitTextToSize(text, width - 2 * padding);
+                    if (lines.length > maxLinesPerCell) {
+                        lines = lines.slice(0, maxLinesPerCell);
+                        if (lines[maxLinesPerCell - 1].length > 3) {
+                            lines[maxLinesPerCell - 1] = lines[maxLinesPerCell - 1].slice(0, -3) + "...";
+                        }
+                    }
+                    lines.forEach((line, lineIndex) => {
+                        doc.text(line, x + padding, y + padding + (lineIndex + 1) * lineHeight);
+                    });
+
+                    x += width;
+                });
+
+                y += rowHeight;
             });
 
-            y += rowHeight;
+            return y;
+        }
+
+        drawTable(tableHtml, title, 10);
+        doc.save("vocab_table.pdf");
+    };
+    script.onerror = function() {
+        alert("Không thể tải jsPDF. Vui lòng kiểm tra kết nối mạng.");
+    };
+    document.head.appendChild(script);
+}
+
+// Tạo PDF chứa cả hai bảng
+function createCombinedPDF() {
+    const germanToVietnameseTable = generateTable("germanToVietnamese");
+    const vietnameseToGermanTable = generateTable("vietnameseToGerman");
+
+    if (!germanToVietnameseTable || !vietnameseToGermanTable) {
+        alert("Không thể tạo PDF. Vui lòng kiểm tra danh sách từ đã chọn.");
+        return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    script.onload = function() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+            orientation: "portrait",
+            unit: "mm",
+            format: "a4"
         });
 
-        doc.save("vocab_table.pdf");
+        doc.addFileToVFS("Arial.ttf", arialBase64);
+        doc.addFont("Arial.ttf", "Arial", "normal");
+        doc.setFont("Arial");
+
+        const colWidths = [8, 80, 90]; // Cột STT, Tiếng Đức/Việt, Đáp án
+        const lineHeight = 3.5; // Chiều cao mỗi dòng văn bản
+        const padding = 1; // Khoảng cách lề ô
+        const maxLinesPerCell = 2; // Số dòng tối đa mỗi ô
+        const pageHeight = 287; // Chiều cao trang A4 trừ lề (297 - 10)
+
+        function drawTable(tableHtml, title, startY) {
+            doc.setFontSize(12);
+            doc.text(title, 10, startY);
+            startY += 5;
+
+            const tempDiv = document.createElement("div");
+            tempDiv.innerHTML = tableHtml;
+            const table = tempDiv.querySelector(".print-table");
+            const rows = table.querySelectorAll("tr");
+            let y = startY;
+
+            rows.forEach((row, index) => {
+                const cells = row.querySelectorAll("th, td");
+                let maxLines = 1;
+
+                // Tính số dòng tối đa trong ô của hàng
+                cells.forEach((cell, cellIndex) => {
+                    const text = cell.textContent;
+                    const width = colWidths[cellIndex] - 2 * padding;
+                    doc.setFontSize(10);
+                    const lines = doc.splitTextToSize(text, width);
+                    maxLines = Math.min(Math.max(maxLines, lines.length), maxLinesPerCell);
+                });
+
+                const rowHeight = maxLines * lineHeight + 2 * padding;
+
+                // Kiểm tra nếu hàng vượt quá trang
+                if (y + rowHeight > pageHeight) {
+                    doc.addPage();
+                    y = 10;
+                    // Vẽ lại tiêu đề trên trang mới
+                    doc.setFontSize(12);
+                    doc.text(title, 10, y);
+                    y += 5;
+                }
+
+                let x = 10;
+                cells.forEach((cell, cellIndex) => {
+                    const text = cell.textContent;
+                    const width = colWidths[cellIndex];
+                    const isHeader = cell.tagName === "TH";
+
+                    // Vẽ viền ô
+                    doc.setLineWidth(0.2);
+                    doc.rect(x, y, width, rowHeight);
+
+                    // Tô nền cho tiêu đề
+                    if (isHeader) {
+                        doc.setFillColor(240, 240, 240);
+                        doc.rect(x, y, width, rowHeight, "F");
+                    }
+
+                    // Vẽ văn bản
+                    doc.setFontSize(10);
+                    doc.setTextColor(0, 0, 0);
+                    let lines = doc.splitTextToSize(text, width - 2 * padding);
+                    if (lines.length > maxLinesPerCell) {
+                        lines = lines.slice(0, maxLinesPerCell);
+                        if (lines[maxLinesPerCell - 1].length > 3) {
+                            lines[maxLinesPerCell - 1] = lines[maxLinesPerCell - 1].slice(0, -3) + "...";
+                        }
+                    }
+                    lines.forEach((line, lineIndex) => {
+                        doc.text(line, x + padding, y + padding + (lineIndex + 1) * lineHeight);
+                    });
+
+                    x += width;
+                });
+
+                y += rowHeight;
+            });
+
+            return y;
+        }
+
+        let y = drawTable(germanToVietnameseTable, "Bảng Học Từ Vựng (Tiếng Đức → Tiếng Việt)", 10);
+        doc.addPage();
+        drawTable(vietnameseToGermanTable, "Bảng Học Từ Vựng (Tiếng Việt → Tiếng Đức)", 10);
+
+        doc.save("combined_vocab_table.pdf");
     };
     script.onerror = function() {
         alert("Không thể tải jsPDF. Vui lòng kiểm tra kết nối mạng.");
